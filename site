@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Vibration and Flash</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin-top: 50px;
+        }
+        .control-group {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Audio Vibration and Flash</h1>
+    <input type="file" id="audioFile" accept="audio/*">
+    <audio id="audio" controls></audio>
+    <div class="control-group">
+        <label for="sensitivity">Чувствительность: </label>
+        <input type="range" id="sensitivity" min="0" max="500" value="200">
+        <span id="sensitivityValue">200</span>
+    </div>
+    <div class="control-group">
+        <label for="vibrationStrength">Сила вибрации (мс): </label>
+        <input type="range" id="vibrationStrength" min="10" max="1000" value="100">
+        <span id="vibrationStrengthValue">100</span>
+    </div>
+    <div class="control-group">
+        <label for="lowFrequencyRange">Нижняя граница частоты (Гц): </label>
+        <input type="range" id="lowFrequencyRange" min="0" max="50" value="0">
+        <span id="lowFrequencyRangeValue">0</span>
+    </div>
+    <div class="control-group">
+        <label for="highFrequencyRange">Верхняя граница частоты (Гц): </label>
+        <input type="range" id="highFrequencyRange" min="50" max="500" value="100">
+        <span id="highFrequencyRangeValue">100</span>
+    </div>
+    <div class="control-group">
+        <label for="profileName">Имя профиля: </label>
+        <input type="text" id="profileName">
+        <button id="saveProfile">Сохранить профиль</button>
+    </div>
+    <div class="control-group">
+        <label for="savedProfiles">Сохраненные профили: </label>
+        <select id="savedProfiles"></select>
+        <button id="loadProfile">Загрузить профиль</button>
+    </div>
+    <button id="testVibration">Тестовая вибрация</button>
+    <button id="testFlash">Тестовая вспышка</button>
+
+    <script>
+        function supportsVibration() {
+            return 'vibrate' in navigator;
+        }
+
+        function testVibration() {
+            if (supportsVibration()) {
+                const vibrationStrength = document.getElementById('vibrationStrength').value;
+                console.log(`Testing vibration with strength: ${vibrationStrength} ms`);
+                navigator.vibrate(vibrationStrength);
+            } else {
+                console.log('Vibration API is not supported on this device.');
+            }
+        }
+
+        let track;
+        async function enableFlash() {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            track = stream.getVideoTracks()[0];
+            const imageCapture = new ImageCapture(track);
+            const capabilities = await imageCapture.getPhotoCapabilities();
+            if (capabilities.torch) {
+                track.applyConstraints({
+                    advanced: [{ torch: true }]
+                });
+            } else {
+                console.log('Torch is not available on this device.');
+            }
+        }
+
+        function flashOn() {
+            if (track) {
+                track.applyConstraints({
+                    advanced: [{ torch: true }]
+                });
+            }
+        }
+
+        function flashOff() {
+            if (track) {
+                track.applyConstraints({
+                    advanced: [{ torch: false }]
+                });
+            }
+        }
+
+        document.getElementById('audioFile').addEventListener('change', function() {
+            const audio = document.getElementById('audio');
+            const file = this.files[0];
+            const url = URL.createObjectURL(file);
+            audio.src = url;
+
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const analyser = audioContext.createAnalyser();
+            const source = audioContext.createMediaElementSource(audio);
+            source.connect(analyser);
+            analyser.connect(audioContext.destination);
+
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            function vibrateAndFlashOnBeat() {
+                analyser.getByteFrequencyData(dataArray);
+
+                const lowFrequencyRange = document.getElementById('lowFrequencyRange').value;
+                const highFrequencyRange = document.getElementById('highFrequencyRange').value;
+
+                const lowFrequency = dataArray.slice(lowFrequencyRange, highFrequencyRange).reduce((a, b) => a + b, 0);
+
+                const sensitivity = document.getElementById('sensitivity').value;
+                const vibrationStrength = document.getElementById('vibrationStrength').value;
+
+                if (lowFrequency > sensitivity) {
+                    console.log(`Low frequency detected: ${lowFrequency}, triggering vibration and flash.`);
+                    navigator.vibrate(vibrationStrength);
+                    flashOn();
+                    setTimeout(flashOff, 100); // Flash duration in milliseconds
+                }
+
+                requestAnimationFrame(vibrateAndFlashOnBeat);
+            }
+
+            vibrateAndFlashOnBeat();
+        });
+
+        document.getElementById('sensitivity').addEventListener('input', function() {
+            document.getElementById('sensitivityValue').textContent = this.value;
+        });
+
+        document.getElementById('vibrationStrength').addEventListener('input', function() {
+            document.getElementById('vibrationStrengthValue').textContent = this.value;
+        });
+
+        document.getElementById('lowFrequencyRange').addEventListener('input', function() {
+            document.getElementById('lowFrequencyRangeValue').textContent = this.value;
+        });
+
+        document.getElementById('highFrequencyRange').addEventListener('input', function() {
+            document.getElementById('highFrequencyRangeValue').textContent = this.value;
+        });
+
+        document.getElementById('testVibration').addEventListener('click', testVibration);
+
+        document.getElementById('testFlash').addEventListener('click', function() {
+            flashOn();
+            setTimeout(flashOff, 100); // Flash duration in milliseconds
+        });
+
+        document.getElementById('saveProfile').addEventListener('click', function() {
+            const profileName = document.getElementById('profileName').value;
+            if (profileName) {
+                const profile = {
+                    sensitivity: document.getElementById('sensitivity').value,
+                    vibrationStrength: document.getElementById('vibrationStrength').value,
+                    lowFrequencyRange: document.getElementById('lowFrequencyRange').value,
+                    highFrequencyRange: document.getElementById('highFrequencyRange').value
+                };
+                localStorage.setItem(profileName, JSON.stringify(profile));
+                updateSavedProfiles();
+                document.getElementById('profileName').value = '';
+            }
+        });
+
+        document.getElementById('loadProfile').addEventListener('click', function() {
+            const selectedProfile = document.getElementById('savedProfiles').value;
+            if (selectedProfile) {
+                const profile = JSON.parse(localStorage.getItem(selectedProfile));
+                document.getElementById('sensitivity').value = profile.sensitivity;
+                document.getElementById('vibrationStrength').value = profile.vibrationStrength;
+                document.getElementById('lowFrequencyRange').value = profile.lowFrequencyRange;
+                document.getElementById('highFrequencyRange').value = profile.highFrequencyRange;
+
+                document.getElementById('sensitivityValue').textContent = profile.sensitivity;
+                document.getElementById('vibrationStrengthValue').textContent = profile.vibrationStrength;
+                document.getElementById('lowFrequencyRangeValue').textContent = profile.lowFrequencyRange;
+                document.getElementById('highFrequencyRangeValue').textContent = profile.highFrequencyRange;
+            }
+        });
+
+        function updateSavedProfiles() {
+            const savedProfiles = document.getElementById('savedProfiles');
+            savedProfiles.innerHTML = '';
+
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                const option = document.createElement('option');
+                option.value = key;
+                option.textContent = key;
+                savedProfiles.appendChild(option);
+            }
+        }
+
+        updateSavedProfiles();
+        enableFlash();
+    </script>
+</body>
+</html>
